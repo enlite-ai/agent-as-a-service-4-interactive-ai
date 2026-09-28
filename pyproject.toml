@@ -1,0 +1,70 @@
+[project]
+name = "a3s-service"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "APIFlask==1.3.1",
+    "Flask==3.0.2",
+    "Grid2Op==1.9.8",
+    # must match the simulator (usecases_examples/PowerGrid): the replayed power flow has to be identical
+    "LightSim2Grid==0.7.5",
+    "loguru==0.7.0",
+    "numpy==1.24.4",
+    "pandas==2.2.1",
+    "pandapower==2.13.1",
+    "pytest==8.1.1",
+    "requests==2.31.0",
+    # grid2op imports pkg_resources at runtime; a uv-managed venv doesn't seed
+    # setuptools the way a plain venv historically did, so it needs to be an
+    # explicit runtime dependency here, not just a [build-system] requirement.
+    # Pinned below 81: setuptools stopped shipping pkg_resources by default
+    # starting with that release.
+    "setuptools<81",
+    "toml==0.10.2",
+    # CPU-only wheel: this service never runs on a GPU, and the CUDA build adds
+    # ~2GB of unused libraries to the image. Fetched via the extra index below.
+    "torch==2.0.1+cpu",
+]
+
+# Only used by A3S_POWERGRID_AGENT=t2.1, but installed unconditionally so one
+# image can serve either agent and switching between them is a single
+# environment variable rather than a variable plus a matching build.
+[project.optional-dependencies]
+t2-1 = [
+    "stable-baselines3==2.2.1",
+]
+
+# torch==2.0.1+cpu only exists on PyTorch's own CPU wheel index, not PyPI.
+# uv reads this and resolves/installs it automatically (`uv sync`, `uv pip
+# install .`); plain pip does not read index config from pyproject.toml, so
+# docker/Dockerfile still passes --extra-index-url explicitly on its `pip
+# install` command.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+# Scoped to packages that opt in via [tool.uv.sources] below (just torch) —
+# without this, uv treats it as a second general index and other packages'
+# resolution can be pulled from whichever index happens to list them first.
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+# This project is never installed as an importable package (the service runs
+# via `flask run` against the source tree, not a wheel) — pyproject.toml exists
+# purely to declare dependencies once. `packages = []` lets `pip install .`
+# succeed with only this file present, before the source is copied in.
+[tool.setuptools]
+packages = []
+
+# Since this project has no installed package, pytest's own rootdir-based
+# sys.path insertion is what makes `a3s_core`, `api`, `config`, `integrations`
+# importable — but the root __init__.py (this is itself a package) throws that
+# off. `pythonpath` puts the repo root on sys.path explicitly so `uv run
+# pytest` (or plain `pytest`) works from here with no extra setup.
+[tool.pytest.ini_options]
+pythonpath = ["."]
